@@ -1,6 +1,8 @@
 import argparse
 import logging
 import os
+import json
+from pathlib import Path
 
 import cv2
 import torch
@@ -55,6 +57,8 @@ def get_parser():
     )
 
     parser.add_argument("--draw", action="store_true", default=False, help="If set, resulted images will be drawn")
+    parser.add_argument("--dump-history", action="store_true",
+                        help="If set, dump all the detected objects history in a file")
     parser.add_argument("--device", default="cuda", type=str, help="Device (accelerator) to use.")
 
     return parser
@@ -64,7 +68,9 @@ def main():
     parser = get_parser()
     setup_default_logging()
     args = parser.parse_args()
-
+    do_demo(args)
+    
+def do_demo(args):
     if torch.cuda.is_available():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.benchmark = True
@@ -96,6 +102,19 @@ def main():
         for (detected_objects_history, frame) in predictor.recognize_video(args.input):
             if args.draw:
                 out.write(frame)
+                
+        if args.dump_history:
+            history = {}
+            for k, v in detected_objects_history.items():
+                history[k] = [dict(zip(["frame", "age", "gender", "gender_score", "bbox", "bbox_confidence"],
+                                       [_v.cpu().numpy().tolist()[0]
+                                        if isinstance(_v, torch.Tensor) else _v
+                                        for _v in vals]))
+                              for vals in v]
+            json_file = os.path.join(args.output, f"out_{bname}.json")
+            with open(json_file, "w") as f:
+                json.dump(history, f)
+       
 
     elif input_type == InputType.Image:
         image_files = get_all_files(args.input) if os.path.isdir(args.input) else [args.input]
